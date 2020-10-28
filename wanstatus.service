@@ -1,0 +1,9 @@
+[Unit]
+Description=Track internet access and WAN IP status
+
+[Service]
+ExecStart=/<path to>/wanstatus
+#User=<yourusername>
+
+[Install]
+WantedBy=multi-user.target

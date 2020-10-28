@@ -1,0 +1,199 @@
+#!/usr/bin/env python3
+"""Check internet access and WAN IP address.  Send email after outage over or
+when WAN IP changes.  
+Runs in forever loop.  Intended to be run by systemd at boot.
+"""
+
+__version__ = "V0.1 201028"
+
+#==========================================================
+#
+#  Chris Nelson, 2020
+#
+# V0.1 201028  New
+#
+# Changes pending
+#
+#==========================================================
+
+
+import argparse
+import sys
+import datetime
+import time
+import os
+import requests
+import socket
+import signal       # For keyboard interrupt handler
+
+
+sys.path.append(os.path.join(os.path.dirname(os.path.realpath(__file__)), '../funcs3/'))
+from funcs3 import *
+
+CONFIG_FILE = os.path.join(os.path.dirname(os.path.realpath(__file__)), 'wanstatus.cfg')
+
+setuplogging()
+loadconfig(cfgfile = CONFIG_FILE) #, cfgloglevel=10)
+
+
+def main():
+
+    WANfile = progdir + getcfg('WanIpFile')
+    if os.path.exists(WANfile):
+        with io.open(WANfile, encoding="utf8") as ifile:
+            SavedWANip = ifile.read()
+    else:
+        SavedWANip = ""
+    next_WANIP_check = time.time()
+
+
+    while 1:
+        loadconfig(cfgfile = CONFIG_FILE)
+        if not have_internet():
+            outage_epoch = time.time()
+            logging.warning("Internet access lost")
+            while 1:
+                status, result = check_modem_access()
+                logging.info ("Modem status:  " + result)
+                if have_internet():
+                    outage_period = int(time.time() - outage_epoch)
+                    subject = "NOTICE:  HOME INTERNET OUTAGE ENDED"
+                    message = f"Outage time:  {datetime.timedelta(seconds = outage_period)}"
+                    snd_notif (subj=subject, msg=message, log=True)
+                    snd_email (subj=subject, body=message, to='EmailTo')
+                    break
+                time.sleep (getcfg('OutageRecheckPeriod'))
+
+        else:   # Have internet
+            logging.info("Have internet access")
+            if args.once:
+                print ("Have internet access")
+
+            # Log modem status
+            status, result = check_modem_access()
+            logging.info ("Modem status:  " + result)
+            if args.once:
+                print ("Modem status:  " + result)
+
+            # Check for router WAN IP address change
+            WANip = get_router_WANIP()
+            logging.info ("Router reported WANIP: " + WANip)
+            if args.once:
+                print ("Router reported WANIP: " + WANip)
+
+            if WANip != "--error--" and WANip != SavedWANip:
+                message = f"New WAN IP: <{WANip}>, Prior WAN IP: <{SavedWANip}>."
+                subject = "NOTICE:  HOME WAN IP CHANGED"
+                snd_notif (subj=subject, msg=message, log=True)
+                snd_email (subj=subject, body=message, to='EmailTo')
+
+                with io.open(WANfile, 'w', encoding="utf8") as ofile:
+                    ofile.write (WANip)
+                SavedWANip = WANip
+
+            # Periodically check external web page for WANIP
+            if getcfg('WanIpWebpage') != "none":
+                if (time.time() > next_WANIP_check) or args.once:
+                    ext_WANIP = get_WANIP()
+                    logging.info (f"Externally reported WANIP:  {ext_WANIP}")
+                    if args.once:
+                        print (f"Externally reported WANIP:  {ext_WANIP}")
+                    
+                    next_WANIP_check += getcfg('ExternalWANRecheckPeriod')
+
+        if args.once:
+            sys.exit(0)
+
+        time.sleep (getcfg('StatusRecheckPeriod'))
+            
+
+
+def have_internet(host=getcfg('PublicDNSpage'), port=getcfg('PublicDNSport'), timeout=3):
+    """
+    Host: 8.8.8.8 (google-public-dns-a.google.com)
+    OpenPort: 53/tcp
+    Service: domain (DNS/TCP)
+    From:  https://stackoverflow.com/questions/3764291/checking-network-connection
+    """
+    for _ in range (getcfg('nRetries')):
+        try:
+            socket.setdefaulttimeout(timeout)
+            socket.socket(socket.AF_INET, socket.SOCK_STREAM).connect((host, port))
+            return True
+        except socket.error as e:
+            msg = "SocketError\n  " + repr(e)
+        except Exception as e:
+            msg = "Other exception\n  " + repr(e)
+    logging.info (msg)
+    return False
+
+
+def get_WANIP():
+    for _ in range (getcfg('nRetries')):
+        try:
+            web_page = requests.get(getcfg('WanIpWebpage'), timeout=0.5)
+            return (web_page.text)
+        except requests.exceptions.ConnectionError as e:
+            msg = "ConnectionError\n  " + repr(e)
+        except requests.exceptions.Timeout as e:
+            msg = "Timeout\n  " + repr(e)
+        except Exception as e:
+            msg = "Other exception\n  " + repr(e)
+    logging.info (msg)
+    return "--error--"
+
+
+def get_router_WANIP():
+    WANIP_FORMAT = re.compile(r'<span id="wan_ipaddr">([\d]+.[\d]+.[\d]+.[\d]+)</span>')
+    # EG:  <span id="wan_ipaddr">98.177.23.171</span>
+    for _ in range (getcfg('nRetries')):
+        try:
+            router_page = requests.get(getcfg('RouterWebpage'), timeout=0.5)
+            for line in router_page.text.split('\n'):
+                out = WANIP_FORMAT.search(line)
+                if out:
+                    return(out.group(1))
+            return ("--none--")
+        except requests.exceptions.ConnectionError as e:
+            msg = "ConnectionError\n  " + repr(e)
+        except requests.exceptions.Timeout as e:
+            msg = "Timeout\n  " + repr(e)
+        except Exception as e:
+            msg = "Other exception\n  " + repr(e)
+    logging.info (msg)
+    return "--error--"
+
+
+def check_modem_access():
+    for _ in range (getcfg('nRetries')):
+        try:
+            modem_page = requests.get(getcfg('ModemWebpage'), timeout=getcfg('ModemTimeout'))
+            if "vcm_operational" in modem_page.text:
+                return True, "Operational"
+            if "vcm_scanning" in modem_page.text:
+                return True, "Scanning"
+            return True, "Other/Unknown"
+        except requests.exceptions.ConnectionError as e:
+            msg = "ConnectionError\n  " + repr(e)
+        except requests.exceptions.Timeout as e:
+            msg = "Timeout\n  " + repr(e)
+        except Exception as e:
+            msg = "Other exception\n  " + repr(e)
+    logging.info (msg)
+    return False, msg
+
+
+def keyboardInterruptHandler(signal, frame):
+    logging.warning("KeyboardInterrupt (ID: {}) has been caught. Cleaning up...".format(signal))
+    sys.exit(0)
+signal.signal(signal.SIGINT, keyboardInterruptHandler)
+
+
+if __name__ == '__main__':
+
+    parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawTextHelpFormatter)
+    parser.add_argument('-1', '--once', action='store_true',
+                        help="Print stats and exit.")
+    args = parser.parse_args()
+
+    main()
