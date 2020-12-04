@@ -44,5 +44,6 @@ optional arguments:
 ## Known issues:
 
 ## Version history
-
+- V0.2 - 201203  Changed handling of get_router_WANIP that periodically did not return a valid value.
+Changed to use logger for once mode.
 - V0.1 201028 - New
