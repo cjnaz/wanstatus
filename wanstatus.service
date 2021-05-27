@@ -1,5 +1,6 @@
 [Unit]
 Description=Track internet access and WAN IP status
+After=network-online.target
 
 [Service]
 ExecStart=/<path to>/wanstatus
