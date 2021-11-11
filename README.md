@@ -1,15 +1,14 @@
 # wanstatus
 
-Monitor WAN-side internet access and WAN IP address changes on a home network.  Sends email and/or text notifications for internet outages (after restored) and WAN IP changes.
-
-This tool relies on the [funcs3](https://github.com/cjnaz/funcs3-Python-script-framework) Python module.  Place `funcs3.py` in the same directory as the wanstatus script, or in a different directory and adjust the path in wanstatus.
+Monitor WAN-side internet access and WAN IP address changes on a home network.  Sends email and/or text notifications for internet outages (after restored) and WAN IP changes.  The tool 
+works with dd-wrt and pfSense routers.
 
 wanstatus normally enters an infinite loop, periodically checking the status of internet access and the WAN IP address.  Use the `--once` switch to interactively check status.
 
-- Internet access is detected by contacting the Google public DNS server.
+- Internet access is detected by contacting an external DNS server, such as the Google public DNS server at 8.8.8.8.
 - If there is NO internet access then the outage time is captured and logged, and wanstatus enters a tight loop checking for recovery of internet access.  Once restored, wanstatus sends email/text notifications that internet access was lost and now restored, and how long the outage was.
 - If there IS access to the internet, then wanstatus reads and logs the cable modem status page (typically at 192.168.100.1).
-- wanstatus then reads the dd-wrt router status page for the WAN IP address, and if changed then sends email and notification messages of the change.
+- wanstatus then reads the pfSense or dd-wrt router status page for the WAN IP address, and if changed then sends email and notification messages of the change.
 - Finally, wanstatus periodically checks with an external web page for the reported WAN IP address.  
 
 
@@ -30,9 +29,18 @@ optional arguments:
   -h, --help            show this help message and exit
   -1, --once            Print stats and exit.
   --config-file CONFIG_FILE
-                        Path to the config file (Default </mnt/share/dev/python/wanstatus/wanstatus.cfg)>.
-  --log-file LOG_FILE   Path to log file (Default </mnt/share/dev/python/wanstatus/log_wanstatus.txt>).
+                        Path to the config file (Default </pathto/wanstatus.cfg)>.
+  --log-file LOG_FILE   Path to log file (Default </pathto/log_wanstatus.txt>).
+```
 
+## Example output
+```
+$ ./wanstatus --once
+./wanstatus V1.2 211111
+Have internet access
+Modem status:               Good (vcm_operational)
+Router reported WANIP:      69.214.235.171
+Externally reported WANIP:  69.214.235.171
 ```
 
 ## Setup and Usage notes
@@ -44,12 +52,13 @@ optional arguments:
 - Supported on Python3 only.  Developed on Centos 7.8 with Python 3.6.8.
 
 ## Customization notes
-- Checking the modem status and checking the external WAN IP address features are optional.  To disable, don't define (comment out) the `ModemWebpage` and `WANIPWebpage` parameters, respectively.
+- Checking the modem status, checking the router reported WAN IP, and checking the external WAN IP address features are optional.  To disable, comment out `ModemWebpage`, `RouterWebpage`, and/or `WANIPWebpage` parameters, respectively.  If all are disabled then only internet access and outage notification are still active.
 - What web pages are checked and for what key text (such as the IP address) is defined entirely within the configuration file.  The wanstatus.cfg file has some alternative definitions as additional examples.  For developing and debugging the regular expressions for your needs, do a `curl <webpage.htm> > testfile.txt` and look for the specific phrase in the html that has the desired info.  I recommend https://regexr.com/ for developing your regular expression. 
 
 ## Known issues:
 
 ## Version history
+- V1.2 211111  pfSense support with router status page login
 - V1.0 210523  Requires funcs3 V0.7 min for import of credentials file and config dynamic reload.
   Added --config-file and --log-file switches
  	Moved router, modem, external webpage RE definitions into the config file to minimize code dependency.  
