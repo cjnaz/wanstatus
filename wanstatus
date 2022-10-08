@@ -3,12 +3,16 @@
 when WAN IP changes.  
 """
 
-__version__ = "V1.2 211111"
+__version__ = "V2.0 221003"
 
 #==========================================================
 #
 #  Chris Nelson, 2020 - 2021
 #
+# V2.0 221003  Revamp. have_internet() supports both DNS connect and ping modes. Support Motorola modem login.
+# V1.5 220915  Added error traps on snd_notif/snd_email calls
+# V1.4 220411  Incorporated use of timevalue
+# V1.3 220203  Updated to funcs3 V1.0
 # V1.2 211111  pfSense support with router status page login
 # V1.1 210617  Added RouterTimeout, WANIPWebpageTimeout, socket close in have_internet
 # V1.0 210523  Requires funcs3 V0.7 min for import of credentials file and config dynamic reload.
@@ -22,7 +26,6 @@ __version__ = "V1.2 211111"
 #
 #==========================================================
 
-
 import argparse
 import sys
 import datetime
@@ -30,22 +33,25 @@ import time
 import os
 import io
 import requests
+import subprocess
 import socket
 import re
 import signal       # For keyboard interrupt handler
 
-sys.path.append(os.path.join(os.path.dirname(os.path.realpath(__file__)), "../funcs3/"))
-from funcs3 import setuplogging, logging, loadconfig, getcfg, PROGDIR, snd_email, snd_notif, funcs3_min_version_check, funcs3_version
-funcs3_min_version = 0.7
 
-CONFIG_FILE = os.path.join(os.path.dirname(os.path.realpath(__file__)), "wanstatus.cfg")
-LOG_FILE =    os.path.join(os.path.dirname(os.path.realpath(__file__)), "log_wanstatus.txt")
+# sys.path.append(os.path.join(os.path.dirname(os.path.realpath(__file__)), './funcs3/'))    # funcs3 in subdir
+sys.path.append(os.path.join(os.path.dirname(os.path.realpath(__file__)), '../funcs3/'))    # funcs3 in peer dir
+from funcs3 import PROGDIR, loadconfig, getcfg, timevalue, logging, funcs3_min_version_check, funcs3_version, snd_notif, snd_email, requestlock, releaselock, ConfigError, SndEmailError
+
+# Configs / Constants
+PY_MIN_VERSION = 3.6
+FUNCS3_MIN_VERSION = 1.1
+CONFIG_FILE = os.path.join(PROGDIR, 'wanstatus.cfg')
+CONSOLE_LOGGING_FORMAT = '{levelname:>8}:  {message}'
 
 
 def main():
-    logging.warning(f"{__file__} {__version__}")
-
-    loadconfig(cfgfile = args.config_file) #, cfgloglevel=10)
+    logging.getLogger().setLevel(20)    # Force info level logging for interactive usage
 
     WANfile = PROGDIR + getcfg('WANIPFile')
     if os.path.exists(WANfile):
@@ -53,189 +59,284 @@ def main():
             SavedWANIP = ifile.read()
     else:
         SavedWANIP = ""
-    next_WANIP_check = time.time()
 
+    # Check internet access
+    status, msg = have_internet()
+    if status:
+        logging.info   (f"{'Internet access:':30} Working  {msg}")
+    else:
+        logging.warning(f"{'Internet access:':30} NONE     {msg}")
+
+    # Check modem status
+    if getcfg('ModemStatusPage', False):
+        status, msg = check_modem_access()
+        if status:
+            logging.info    (f"{'Modem status:':30} {msg}")
+        else:
+            logging.warning (f"{'Modem status:':30} {msg}")
+
+    # Check for router WAN IP address change
+    if getcfg('RouterStatusPage', False):
+        status, WANIP, msg = get_router_WANIP()
+        if status:
+            logging.info     (f"{'Router reported WANIP:':30} {WANIP} {msg}")
+            if WANIP != SavedWANIP:
+                logging.info (f"{'   Prior stored WANIP:':30} {SavedWANIP}")
+        else:
+            logging.warning(f"Failed getting WANIP address from router:\n{msg}")
+
+    # Check external web page for WANIP
+    if getcfg('WANIPWebpage', False):
+        status, ext_WANIP = get_external_WANIP()
+        if status:
+            logging.info (f"{'Externally reported WANIP:':30} {ext_WANIP}")
+        else:
+            logging.warning (f"Failed getting externally reported WANIP:  {ext_WANIP}")
+
+
+def service():
+    WANfile = PROGDIR + getcfg('WANIPFile')
+    if os.path.exists(WANfile):
+        with io.open(WANfile, encoding="utf8") as ifile:
+            SavedWANIP = ifile.read()
+    else:
+        SavedWANIP = ""
+
+    next_check_time = next_WANIP_check_time = time.time()
+    
 
     while 1:
-        if loadconfig(cfgfile = CONFIG_FILE, flush_on_reload=True):       # Refresh if changes
+        if loadconfig(cfgfile = args.config_file, flush_on_reload=True, cfglogfile_wins=logfile_override):       # Refresh if changes
             logging.warning(f"NOTE - The config file has been reloaded.")
 
-        if args.once:
-            logging.getLogger().setLevel(20)    # Force info level for interactive usage
+        if time.time() > next_check_time:
 
-        if not have_internet():
-            outage_timestamp = time.time()
-            logging.warning("Internet access lost")
-            while 1:
-                # if loadconfig(cfgfile = CONFIG_FILE, flush_on_reload=True):       # Uncomment for testing/debug for config reload during access recheck loop
-                #     logging.warning(f"NOTE - The config file has been reloaded.")
-                if getcfg('ModemWebpage', False):           # Check if we can get past the router to the modem (for diagnostic purposes)
-                    status, result = check_modem_access()
-                    logging.info (f"Modem status:  {result}")
-                if have_internet():
-                    outage_period = int(time.time() - outage_timestamp)
+            status, msg = have_internet()
 
-                    subject = "NOTICE:  HOME INTERNET OUTAGE ENDED"
-                    message = f"Outage time:  {datetime.timedelta(seconds = outage_period)}"    # Casts int seconds to "00:00:00" format
-                    if getcfg("NotifList", False):
-                        snd_notif (subj=subject, msg=message, log=True)
-                    if getcfg("EmailTo", False):
-                        snd_email (subj=subject, body=message, to='EmailTo', log=True)
-                    if not getcfg("NotifList", False)  and  not getcfg("EmailTo", False):
-                        logging.warning(f"{subject} - {message}")
-                    break
-                time.sleep (getcfg('OutageRecheckPeriod'))
+            if not status: # INTERNET ACCESS LOST
+                outage_timestamp = time.time()
+                logging.warning(f"INTERNET ACCESS LOST")
+                while 1:
+                    # Uncomment for debug - allows changing IAPingAddr or IADNSPage for testing have_internet() logic
+                    # if loadconfig(cfgfile = args.config_file, flush_on_reload=True, cfglogfile_wins=logfile_override):       # Refresh if changes
+                    #     logging.warning(f"NOTE - The config file has been reloaded.")
 
-        else:   # Have internet
-            logging.info("Have internet access")
+                    if getcfg('ModemStatusPage', False):           # Check if we can get past the router to the modem (for diagnostic purposes)
+                        status, msg = check_modem_access()
+                        logging.info (f"{'Modem status:':30} {msg}")
 
-            # Check modem status
-            if getcfg('ModemWebpage', False):
-                status, result = check_modem_access()
-                if status:
-                    logging.info    (f"Modem status:               Good ({result})")
-                else:
-                    logging.warning (f"Modem status:               Bad ({result})")
+                    status, msg = have_internet()
+                    if status: # INTERNET ACCESS RECOVERED
+                        outage_period = int(time.time() - outage_timestamp)
 
-            # Check for router WAN IP address change
-            if getcfg('RouterWebpage', False):
-                status, WANIP = get_router_WANIP()
-                if status:
-                    logging.info (f"Router reported WANIP:      {WANIP}")
-                    if WANIP != SavedWANIP:
-                        message = f"New WAN IP: <{WANIP}>, Prior WAN IP: <{SavedWANIP}>."
-                        subject = "NOTICE:  HOME WAN IP CHANGED"
+                        subject = "NOTICE:  HOME INTERNET OUTAGE ENDED"
+                        message = f"Outage time:  {datetime.timedelta(seconds = outage_period)}"    # Casts int seconds to "00:00:00" format
                         if getcfg("NotifList", False):
-                            snd_notif (subj=subject, msg=message, log=True)
+                            try:
+                                snd_notif (subj=subject, msg=message, log=True)
+                            except Exception as e:
+                                logging.warning(f"snd_notif error for <{subject}>:  {e}")
                         if getcfg("EmailTo", False):
-                            snd_email (subj=subject, body=message, to='EmailTo', log=True)
+                            try:
+                                snd_email (subj=subject, body=message, to='EmailTo', log=True)
+                            except Exception as e:
+                                logging.warning(f"snd_email error for <{subject}>:  {e}")
                         if not getcfg("NotifList", False)  and  not getcfg("EmailTo", False):
                             logging.warning(f"{subject} - {message}")
 
-                        with io.open(WANfile, 'w', encoding="utf8") as ofile:
-                            ofile.write (WANIP)
-                        SavedWANIP = WANIP
-                else:
-                    logging.warning(f"Failed getting WANIP address from router:\n{WANIP}")
+                        next_check_time = next_WANIP_check_time = time.time()
+                        break
+                    time.sleep (timevalue(getcfg('OutageRecheckPeriod')).seconds)
 
-            # Periodically check external web page for WANIP
-            if getcfg('WANIPWebpage', False):
-                if (time.time() > next_WANIP_check) or args.once:
-                    status, ext_WANIP = get_external_WANIP()
+            else:   # HAVE INTERNET
+                logging.info   (f"{'Internet access:':30} Working  {msg}")
+
+                # Check modem status
+                if getcfg('ModemStatusPage', False):
+                    status, msg = check_modem_access()
                     if status:
-                        logging.info (f"Externally reported WANIP:  {ext_WANIP}")
+                        logging.info    (f"{'Modem status:':30} {msg}")
                     else:
-                        logging.warning (f"Failed getting externally reported WANIP:  {ext_WANIP}")
-                    
-                    next_WANIP_check += getcfg('ExternalWANRecheckPeriod')
+                        logging.warning (f"{'Modem status:':30} {msg}")
 
-        if args.once:
-            sys.exit(0)
+                # Check for router WAN IP address change
+                if getcfg('RouterStatusPage', False):
+                    status, WANIP, msg = get_router_WANIP()                
+                    if status:
+                        logging.info     (f"{'Router reported WANIP:':30} {WANIP} {msg}")
+                        if WANIP != SavedWANIP:
+                            subject = "NOTICE:  HOME WAN IP CHANGED"
+                            message = f"New WAN IP: <{WANIP}>, Prior WAN IP: <{SavedWANIP}>."
+                            if getcfg("NotifList", False):
+                                try:
+                                    snd_notif (subj=subject, msg=message, log=True)
+                                except Exception as e:
+                                    logging.warning(f"snd_notif error for <{subject}>:  {e}")
+                            if getcfg("EmailTo", False):
+                                try:
+                                    snd_email (subj=subject, body=message, to='EmailTo', log=True)
+                                except Exception as e:
+                                    logging.warning(f"snd_email error for <{subject}>:  {e}")
+                            if not getcfg("NotifList", False)  and  not getcfg("EmailTo", False):
+                                logging.warning(f"{subject} - {message}")
 
-        time.sleep (getcfg('StatusRecheckPeriod'))
+                            with io.open(WANfile, 'w', encoding="utf8") as ofile:
+                                ofile.write (WANIP)
+                            SavedWANIP = WANIP
+                    else:
+                        logging.warning(f"Failed getting WANIP address from router:\n{msg}")
+                        # logging.warning(f"Failed getting WANIP address from router:\n{WANIP} {msg}")
+
+                # Periodically check external web page for WANIP
+                if getcfg('WANIPWebpage', False):
+                    if (time.time() > next_WANIP_check_time):
+                        status, ext_WANIP = get_external_WANIP()
+                        if status:
+                            logging.info (f"{'Externally reported WANIP:':30} {ext_WANIP}")
+                        else:
+                            logging.warning (f"Failed getting externally reported WANIP:  {ext_WANIP}")
+                        
+                        next_WANIP_check_time += timevalue(getcfg('ExternalWANRecheckPeriod')).seconds  # getcfg('ExternalWANRecheckPeriod')
+
+            next_check_time += timevalue(getcfg('StatusRecheckPeriod')).seconds
+        time.sleep (10)
             
 
 
 def have_internet():
-    """Check for internet access by making a socket connection to an external DNS server.
+    """Check for internet access by making a socket connection to an external DNS server, or do a ping.
         Host: 8.8.8.8 (google-public-dns-a.google.com)
         OpenPort: 53/tcp
         Service: domain (DNS/TCP)
         From:  https://stackoverflow.com/questions/3764291/checking-network-connection
     Config params:
-        PublicDNSpage
-        PublicDNSport
-        PublicDNSTimeout
-    Returns True on successful DNS connection, else False.
-    Set the LoggingLevel to 20 (info) to get more info on the failure.
+        IACheckMethod (Internet Access, 'DNS' or 'ping', case insensitive)
+            ping mode
+                IAPingAddr
+                IAPingMaxTime
+            DNS mode
+                IADNSPage
+                IADNSPort
+                IADNSTimeout
+    Returns True on successful ping time < IAPingMaxTime (in ms)  or  successful DNS connection within IADNSTimeout, else False.
+    Also returns target address and response time
     """
     msg = "have_internet failed"
     for _ in range (getcfg('nRetries')):
-        try:
-            # socket.setdefaulttimeout(getcfg("PublicDNSTimeout"))
-            s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-            s.settimeout(getcfg("PublicDNSTimeout"))
-            s.connect((getcfg("PublicDNSpage"), getcfg("PublicDNSport")))
-            s.close()
-            return True
-        except socket.error as e:
-            msg = "SocketError\n  " + repr(e)
-        except Exception as e:
-            msg = "Other exception\n  " + repr(e)
-        logging.warning (msg)
-        time.sleep(1)
-    logging.info (msg)
-    return False
+        if getcfg("IACheckMethod", "none").lower() == "ping":
+            try:
+                start_time = time.time()
+                ping = subprocess.run(["ping", getcfg("IAPingAddr"), "-c", "1", "-W", "5"],     # timeout hardcoded to 5sec
+                    check=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE, universal_newlines=True)
+                cmd_time = time.time() - start_time
+                ping.check_returncode()
+                ping_time = float(re.search("time=([\d.]*)", ping.stdout).group(1))
+                msg = f"      (ping {getcfg('IAPingAddr')} {ping_time:5.1f} ms, command run time {cmd_time*1000:5.1f} ms)"
+                if ping_time < float(getcfg("IAPingMaxTime")):
+                    return True, msg
+                else:
+                    return False, msg
+            except Exception as e:
+                msg = (f"Ping errored:\n  {e}")
+
+        if getcfg("IACheckMethod", "none").lower() == "dns":
+            try:
+                # socket.setdefaulttimeout(getcfg("IADNSTimeout"))
+                s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+                s.settimeout(timevalue(getcfg('IADNSTimeout')).seconds)
+                start_time = time.time()
+                s.connect((getcfg("IADNSPage"), getcfg("IADNSPort")))
+                cmd_time = time.time() - start_time
+                s.close()
+                msg = f"      (DNS server {getcfg('IADNSPage')}, command run time {cmd_time*1000:5.1f} ms)"
+                return True, msg
+            except Exception as e:
+                msg = "DNS connection errored:\n  " + repr(e)
+    return False, msg
 
 
 def check_modem_access():
     """Check for up/operational status from the modem.
     Config params:
-        ModemWebpage
-        ModemWebpageRE
-        ModemWebpageUpstate
-    Returns True if the ModemWebpageRE search matches ModemWebpageUpstate, else False.
+        ModemStatusPage
+        ModemStatusRE
+        ModemStatusUpState
+        Modem_USER
+        Modem_PASS
+    Returns True if the ModemStatusRE search matches ModemStatusUpState, else False.
     Also returns the RE search result text
     """
-    MODEM_FORMAT = re.compile(getcfg("ModemWebpageRE"))
+    MODEM_FORMAT = re.compile(getcfg("ModemStatusRE"))
     msg = "Modem status read failed"
     for _ in range (getcfg('nRetries')):
         try:
-            modem_page = requests.get(getcfg('ModemWebpage'), timeout=getcfg('ModemTimeout'))
+            _timeout = timevalue(getcfg('ModemTimeout')).seconds
+            # Sometimes the modem requires a login, sometimes not.  Assume that prior login is still active.
+            start_time = time.time()
+            modem_page = requests.get(getcfg('ModemStatusPage'), timeout=_timeout)
+            cmd_time = time.time() - start_time
+            if getcfg('ModemLoginText') in modem_page.text:    # Need to do a login
+                logging.info("Cable modem login executed")
+                payload = {'loginUsername': getcfg('Modem_USER'), 'loginPassword': getcfg('Modem_PASS')}
+                r = requests.post(getcfg('ModemLoginPage'), payload)
+                start_time = time.time()
+                modem_page = requests.get(getcfg('ModemStatusPage'), timeout=_timeout)  # After login, re-get the status page
+                cmd_time = time.time() - start_time
+
             out = MODEM_FORMAT.search(modem_page.text)
             if out:
                 isgood = False
-                if out.group(1) == getcfg("ModemWebpageUpState"):
+                if out.group(1) == getcfg("ModemStatusUpState"):
                     isgood = True
-                return isgood, out.group(1)
-        except requests.exceptions.ConnectionError as e:
-            msg = "ConnectionError\n  " + repr(e)
-        except requests.exceptions.Timeout as e:
-            msg = "Timeout\n  " + repr(e)
+                msg = f"{out.group(1)}      (command run time {cmd_time*1000:5.1f} ms)"
+                return isgood, msg
         except Exception as e:
-            msg = "Other exception\n  " + repr(e)
+            msg = "Modem access errored:\n  " + repr(e)
     return False, msg
 
 
 def get_router_WANIP():
-    """Get WAN IP from dd-wrt router info.live.htm page (configurable).
+    """Get WAN IP from router status page.
     Config params:
-        RouterWebpage
-        RouterWebpageRE
+        RouterStatusPage
+        RouterStatusRE
         RouterTimeout
         Router_USER
         Router_PASS
     On success, returns True and the IP address returned from the router, else False and the error message.
     """
-    WANIP_FORMAT = re.compile(getcfg("RouterWebpageRE"))
+    WANIP_FORMAT = re.compile(getcfg("RouterStatusRE"))
     msg = "Invalid web page response from router"
     for _ in range (getcfg('nRetries')):
         try:
+            _timeout = timevalue(getcfg('RouterTimeout')).seconds
             if getcfg("Router_USER", False) is not False:
+                start_time = time.time()
                 s = requests.session()
-                r = s.get(getcfg('RouterWebpage'), timeout=getcfg("RouterTimeout"),verify = False)
+                r = s.get(getcfg('RouterStatusPage'), timeout=_timeout, verify = False)     #getcfg("RouterTimeout"),verify = False)
+                # print (r.text)
                 matchme = 'csrfMagicToken = "(.*)";var'
                 csrf = re.search(matchme,str(r.text))
                 payload = {
-'__csrf_magic' : csrf.group(1),
-'login' : 'Login',
-'usernamefld' : getcfg("Router_USER"),
-'passwordfld' : getcfg("Router_PASS")
-}
-                r = s.post(getcfg('RouterWebpage'), timeout=getcfg("RouterTimeout"),data=payload,verify = False)
-                router_page = s.get(getcfg('RouterWebpage'), timeout=getcfg("RouterTimeout"),verify = False)
+                    '__csrf_magic' : csrf.group(1),
+                    'login' : 'Login',
+                    'usernamefld' : getcfg("Router_USER"),
+                    'passwordfld' : getcfg("Router_PASS")
+                    }
+                router_page = s.post(getcfg('RouterStatusPage'), timeout=_timeout, data=payload, verify = False)
+                # router_page = s.get(getcfg('RouterStatusPage'), timeout=_timeout, verify = False)  # In case of pfSense the page is returned on the post.  Don't need to get again.
+                cmd_time = time.time() - start_time
             else:
-                router_page = requests.get(getcfg('RouterWebpage'), timeout=getcfg("RouterTimeout"))
+                start_time = time.time()
+                router_page = requests.get(getcfg('RouterStatusPage'), timeout=_timeout)
+                cmd_time = time.time() - start_time
             out = WANIP_FORMAT.search(router_page.text)
             if out:
-                return True, out.group(1)
-        except requests.exceptions.ConnectionError as e:
-            msg = "ConnectionError\n  " + repr(e)
-        except requests.exceptions.Timeout as e:
-            msg = "Timeout\n  " + repr(e)
+                msg = f" (command run time {cmd_time*1000:5.1f} ms)"
+                return True, out.group(1), msg
         except Exception as e:
-            msg = "Other exception\n  " + repr(e)
-    return False, msg
+            msg = "Router access errored:\n  " + repr(e)
+    return False, "", msg
 
 
 def get_external_WANIP():
@@ -244,49 +345,81 @@ def get_external_WANIP():
         WANIPWebpage
         WANIPWebpageRE
         WANIPWebpageTimeout
-    On success, returns True and the IP address returned from the router, else False and the error message.
+    On success, returns True and the IP address returned from the webpage, else False and the error message.
     """
     WANIP_FORMAT = re.compile(getcfg("WANIPWebpageRE"))
     msg = f"Invalid web page response from external webpage {getcfg('WANIPWebpage')}"
     for _ in range (getcfg('nRetries')):
         try:
-            web_page = requests.get(getcfg('WANIPWebpage'), timeout=getcfg("WANIPWebpageTimeout"))
+            start_time = time.time()
+            web_page = requests.get(getcfg('WANIPWebpage'), timeout=timevalue(getcfg('WANIPWebpageTimeout')).seconds)        #getcfg("WANIPWebpageTimeout"))
+            cmd_time = time.time() - start_time
             out = WANIP_FORMAT.search(web_page.text)
             if out:
-                return True, out.group(1)
-        except requests.exceptions.ConnectionError as e:
-            msg = "ConnectionError\n  " + repr(e)
-        except requests.exceptions.Timeout as e:
-            msg = "Timeout\n  " + repr(e)
+                msg = f"{out.group(1)}  (command run time {cmd_time*1000:5.1f} ms)"
+                return True, msg
         except Exception as e:
-            msg = "Other exception\n  " + repr(e)
+            msg = "Checking external WANIPage errored:\n  " + repr(e)
     return False, msg
 
 
-def keyboardInterruptHandler(signal, frame):
-    logging.warning("KeyboardInterrupt (ID: {}) has been caught. Cleaning up...".format(signal))
+
+def cleanup():
+    logging.warning ("Cleanup")
+    pass
+
+
+def int_handler(signal, frame):
+    logging.warning(f"Signal {signal} received.  Exiting.")
+    cleanup()
     sys.exit(0)
-signal.signal(signal.SIGINT, keyboardInterruptHandler)
+signal.signal(signal.SIGINT,  int_handler)      # Ctrl-C
+signal.signal(signal.SIGTERM, int_handler)      # kill
+
 
 
 if __name__ == '__main__':
-
-    parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawTextHelpFormatter)
-    parser.add_argument('-1', '--once', action='store_true',
-                        help="Print stats and exit.")
+    parser = argparse.ArgumentParser(description=__doc__ + __version__, formatter_class=argparse.RawTextHelpFormatter)
     parser.add_argument('--config-file', type=str, default=CONFIG_FILE,
                         help=f"Path to the config file (Default <{CONFIG_FILE})>.")
-    parser.add_argument('--log-file', default=LOG_FILE,
-                        help=f"Path to log file (Default <{LOG_FILE}>).")
+    parser.add_argument('--service', action='store_true',
+                        help="Enter endless loop for use as a systemd service.")
+    parser.add_argument('-V', '--version', action='version', version='%(prog)s ' + __version__,
+                        help="Return version number and exit.")
+
     args = parser.parse_args()
 
-    if args.once:
-        setuplogging(logfile=None)
-    else:
-        setuplogging(logfile=args.log_file)
 
-    if not funcs3_min_version_check(funcs3_min_version):
-        logging.error(f"ERROR:  funcs3 module must be at least version {funcs3_min_version}.  Found <{funcs3_version}>.")
+    # Load config file and setup logging
+    logfile_override = True  if not args.service  else False
+    try:
+        loadconfig(args.config_file, cfglogfile_wins=logfile_override)
+    except Exception as e:
+        logging.error(f"Failed loading config file <{args.config_file}> - Aborting.\n  {e}")
         sys.exit(1)
 
+
+    logging.warning (f"========== {os.path.basename(__file__)} ({__version__}) ==========")
+    logging.info (f"Config file <{os.path.abspath(args.config_file)}>")
+
+
+    # Python min version check
+    py_version = float(sys.version_info.major) + float(sys.version_info.minor)/10
+    if py_version < PY_MIN_VERSION:
+        logging.error (f"Current Python version {py_version} is less than minimum required version {PY_MIN_VERSION}.  Aborting.")
+        sys.exit(1)
+
+
+    # funcs3 min version check
+    if not funcs3_min_version_check(FUNCS3_MIN_VERSION):
+        logging.error(f"funcs3 module must be at least version <V{FUNCS3_MIN_VERSION}>.  Found <{funcs3_version}>.  Aborting.")
+        sys.exit(1)
+    else:
+        logging.debug(f"funcs3 module version <{funcs3_version}> (min required <V{FUNCS3_MIN_VERSION}>)")
+
+
+    if args.service:
+        service()
+
     main()
+    sys.exit()
