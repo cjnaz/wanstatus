@@ -1,0 +1,9 @@
+# Credentials for wanstatus 2.1
+
+# Router pfSense Dashboard page access params
+Router_USER         admin           # Don't define if no login required
+Router_PASS         yourpassword
+
+# Cable modem login params
+Modem_USER          admin
+Modem_PASS          yourpassword
