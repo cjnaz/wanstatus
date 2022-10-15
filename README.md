@@ -16,13 +16,14 @@ All parameters are set in the wanstatus.cfg config file.  On each loop, the conf
 
 wanstatus may be started manually, or may be configured to start at system boot.  An example [systemd unit file](wanstatus.service) is included.  See systemd documentation for how to set it up.
 
+` `
 ## Notable changes since prior release
 V2.1:
 - Changed from implicit service mode to explicit service mode with `--service` switch.  Removed `--once` switch for manual/single runs.
 - Log file is now specified in the config file (func3 min version 1.1).
 - have_internet() now supports either ping mode or DNS server mode via the `IACheckMethod` config parameter.  Multiple target addresses may be specified as a whitespace separated list of ping addresses or DNS server addresses.
 
-
+` `
 ## Usage
 ```
 $ ./wanstatus -h
@@ -40,7 +41,7 @@ optional arguments:
   -V, --version         Return version number and exit.
 
 ```
-
+` `
 ## Example output
 ```
 $ ./wanstatus
@@ -51,7 +52,7 @@ $ ./wanstatus
     INFO:  Externally reported WANIP:   68.230.19.222    (command run time  373.7 ms)
 
 ```
-
+` `
 ## Setup and Usage notes
 - Place wanstatus and wanstatus.cfg in a directory.
 - Edit/configure wanstatus.cfg as needed.
@@ -61,6 +62,7 @@ $ ./wanstatus
 - When running in service mode (continuously looping) the config file may be edited and is reloaded when changed.  This allows for changing settings without having to restart the service.
 - Supported on Python3 only.  Developed on Centos 7.8 with Python 3.6.8.
 
+` `
 ## Customization notes
 - Checking for internet access can be done by either pinging internet servers (slower) or by doing connections to DNS servers (faster).  The internet access check method is selected via the  `IACheckMethod` config parameter.  Multiple target addresses may be specified as a whitespace separated list of ping addresses or DNS server addresses.  The first server in the list is tried, and if access should fail (after `nRetries` attempts) then the next server in the list is tried, and so on.
 - Checking the modem status, checking the router reported WAN IP, and checking the external WAN IP address features are optional.  To disable, comment out `ModemStatusPage`, `RouterStatusPage`, and/or `WANIPWebpage` parameters, respectively.  If all three are disabled then only internet access checking and outage notification are still active.
@@ -68,8 +70,10 @@ $ ./wanstatus
 - What web pages are checked and for what key text (such as the IP address) is defined entirely within the configuration file.  The wanstatus.cfg file has some alternative definitions as additional examples.  For developing and debugging the regular expressions for your needs, do a `curl <webpage.htm> > testfile.txt` and look for the specific phrase in the html that has the desired info.  I recommend https://regexr.com/ for developing your regular expression. 
 - The external WAN IP check servers may not tolerate too frequent requests.  Set `ExternalWANRecheckPeriod` to a big value, such as 1 hour, to avoid being blacklisted.
 
+` `
 ## Known issues:
 
+` `
 ## Version history
 - V2.1 221013  Revamped.
 - V1.2 211111  pfSense support with router status page login
