@@ -1,14 +1,15 @@
 #!/usr/bin/env python3
 """Check internet access and WAN IP address.  Send notification/email after outage is over and
-on WAN IP changes.  
+on WAN IP change.
 """
 
-__version__ = "V2.1 221013"
+__version__ = "V2.2 221106"
 
 #==========================================================
 #
 #  Chris Nelson, 2020 - 2021
 #
+# V2.2 221106  Converged modem and router check code into device class
 # V2.1 221013  have_internet() ping and dns servers may be more than 1.
 # V2.0 221003  Revamp. have_internet() supports both DNS connect and ping modes. Support Motorola MB7621 modem login.
 # V1.5 220915  Added error traps on snd_notif/snd_email calls
@@ -28,6 +29,7 @@ __version__ = "V2.1 221013"
 #==========================================================
 
 import argparse
+from asyncio import start_unix_server
 import sys
 import datetime
 import time
@@ -37,7 +39,7 @@ import requests
 import subprocess
 import socket
 import re
-import signal       # For keyboard interrupt handler
+import signal
 
 
 # sys.path.append(os.path.join(os.path.dirname(os.path.realpath(__file__)), './funcs3/'))    # funcs3 in subdir
@@ -55,14 +57,17 @@ FIELD_WIDTH1 = 28
 FIELD_WIDTH2 = 16
 
 def main():
+    global modem_status, router_status
     logging.getLogger().setLevel(20)    # Force info level logging for interactive usage
 
-    WANfile = PROGDIR + getcfg('WANIPFile')
+    SavedWANIP = ""
+
+    WANfile = getcfg("WANIPFile")
+    if not os.path.isabs(WANfile):
+        WANfile = os.path.join(PROGDIR, WANfile)
     if os.path.exists(WANfile):
         with io.open(WANfile, encoding="utf8") as ifile:
             SavedWANIP = ifile.read()
-    else:
-        SavedWANIP = ""
 
     # Check internet access
     status, msg = have_internet()
@@ -73,15 +78,17 @@ def main():
 
     # Check modem status
     if getcfg('ModemStatusPage', False):
-        status, msg = check_modem_access()
+        modem_status = device("Modem")
+        status, state, msg = modem_status.get_data()
         if status:
-            logging.info    (f"{'Modem status:':{FIELD_WIDTH1}} {msg}")
+            logging.info    (f"{'Modem status:':{FIELD_WIDTH1}} {state:{FIELD_WIDTH2}} {msg}")
         else:
-            logging.warning (f"{'Modem status:':{FIELD_WIDTH1}} {msg}")
+            logging.warning (f"{'Modem status:':{FIELD_WIDTH1}} {state:{FIELD_WIDTH2}} {msg}")
 
     # Check for router WAN IP address change
     if getcfg('RouterStatusPage', False):
-        status, WANIP, msg = get_router_WANIP()
+        router_status = device("Router")
+        status, WANIP, msg = router_status.get_data()
         if status:
             logging.info     (f"{'Router reported WANIP:':{FIELD_WIDTH1}} {WANIP:{FIELD_WIDTH2}} {msg}")
             if WANIP != SavedWANIP:
@@ -99,20 +106,29 @@ def main():
 
 
 def service():
-    WANfile = PROGDIR + getcfg('WANIPFile')
+    global modem_status, router_status
+
+    SavedWANIP = ""
+
+    WANfile = getcfg("WANIPFile")
+    if not os.path.isabs(WANfile):
+        WANfile = os.path.join(PROGDIR, WANfile)
     if os.path.exists(WANfile):
         with io.open(WANfile, encoding="utf8") as ifile:
             SavedWANIP = ifile.read()
-    else:
-        SavedWANIP = ""
 
+    if getcfg('ModemStatusPage', False):
+        modem_status = device("Modem")
+    if getcfg('RouterStatusPage', False):
+        router_status = device("Router")
     next_check_time = next_WANIP_check_time = time.time()
     
-
     while 1:
         if loadconfig(cfgfile = args.config_file, flush_on_reload=True, cfglogfile_wins=logfile_override):       # Refresh if changes
-            next_check_time = next_WANIP_check_time = time.time()
             logging.warning(f"NOTE - The config file has been reloaded.")
+            modem_status = device("Modem")     # Recreate device objects since their config has possibly changed
+            router_status = device("Router")
+            next_check_time = next_WANIP_check_time = time.time()
 
         if time.time() > next_check_time:
 
@@ -127,15 +143,20 @@ def service():
                     #     logging.warning(f"NOTE - The config file has been reloaded.")
 
                     if getcfg('ModemStatusPage', False):           # Check if we can get past the router to the modem (for diagnostic purposes)
-                        status, msg = check_modem_access()
-                        logging.info (f"{'Modem status:':{FIELD_WIDTH1}} {msg}")
+                        status, state, msg = modem_status.get_data()
+                        logging.info (f"{'Modem status:':{FIELD_WIDTH1}} {state:{FIELD_WIDTH2}} {msg}")
+
 
                     status, msg = have_internet()
+                    logging.debug (f"have_internet() call returned {status}, {msg}")
                     if status: # INTERNET ACCESS RECOVERED
                         outage_period = int(time.time() - outage_timestamp)
 
+                        logging.info (f"Doing <{getcfg('RecoveryDelay')}> internet access recovery delay")
+                        time.sleep (timevalue(getcfg('RecoveryDelay')).seconds)
+
                         subject = "NOTICE:  HOME INTERNET OUTAGE ENDED"
-                        message = f"Outage time:  {datetime.timedelta(seconds = outage_period)}"    # Casts int seconds to "00:00:00" format
+                        message = f"Outage time:  {datetime.timedelta(seconds = outage_period)}"    # Cast int seconds to "00:00:00" format
                         if getcfg("NotifList", False):
                             try:
                                 snd_notif (subj=subject, msg=message, log=True)
@@ -158,15 +179,15 @@ def service():
 
                 # Check modem status
                 if getcfg('ModemStatusPage', False):
-                    status, msg = check_modem_access()
+                    status, state, msg = modem_status.get_data()
                     if status:
-                        logging.info    (f"{'Modem status:':{FIELD_WIDTH1}} {msg}")
+                        logging.info    (f"{'Modem status:':{FIELD_WIDTH1}} {state:{FIELD_WIDTH2}} {msg}")
                     else:
-                        logging.warning (f"{'Modem status:':{FIELD_WIDTH1}} {msg}")
+                        logging.warning (f"{'Modem status:':{FIELD_WIDTH1}} {state:{FIELD_WIDTH2}} {msg}")
 
                 # Check for router WAN IP address change
                 if getcfg('RouterStatusPage', False):
-                    status, WANIP, msg = get_router_WANIP()                
+                    status, WANIP, msg = router_status.get_data()
                     if status:
                         logging.info     (f"{'Router reported WANIP:':{FIELD_WIDTH1}} {WANIP:{FIELD_WIDTH2}} {msg}")
                         if WANIP != SavedWANIP:
@@ -225,7 +246,9 @@ def have_internet():
     if getcfg("IACheckMethod", "none").lower() == "ping":
         for addr in getcfg("IAPingAddrs").split():
             for _ in range (getcfg('nRetries')):
+                logging.debug (f"have_internet() try {_} ")
                 try:
+                    logging.debug (f"Attempting ping to {addr}")
                     start_time = time.time()
                     ping = subprocess.run(["ping", addr, "-c", "1", "-W", "5"],     # timeout hardcoded to 5sec
                         check=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE, universal_newlines=True)
@@ -240,6 +263,7 @@ def have_internet():
                 except Exception as e:
                     msg = (f"Ping errored:\n  {e}")
             logging.info (f"Ping to <{addr}> failed.  Trying next server, if specified.")
+        # logging.debug (f"have_internet() checks errored:\n  {msg}")
 
     if getcfg("IACheckMethod", "none").lower() == "dns":
         # Host: 8.8.8.8 (google-public-dns-a.google.com)
@@ -248,8 +272,10 @@ def have_internet():
         # From:  https://stackoverflow.com/questions/3764291/checking-network-connection
         for addr in getcfg("IADNSAddrs").split():
             for _ in range (getcfg('nRetries')):
+                logging.debug (f"have_internet() try {_} ")
                 try:
                     # socket.setdefaulttimeout(getcfg("IADNSTimeout"))
+                    logging.debug (f"Attempting socket connection to {addr}")
                     s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
                     s.settimeout(timevalue(getcfg('IADNSTimeout')).seconds)
                     start_time = time.time()
@@ -261,92 +287,126 @@ def have_internet():
                 except Exception as e:
                     msg = "DNS connection errored:\n  " + repr(e)
             logging.info (f"DNS connection to <{addr}> failed.  Trying next server, if specified.")
+        # logging.debug (f"have_internet() checks errored:\n  {msg}")
     return False, msg
 
 
-def check_modem_access():
-    """Check for up/operational status from the modem.
-    Config params:
-        ModemStatusPage
-        ModemStatusRE
-        ModemStatusUpState
-        ModemLoginText      If not in config file then no login will be attempted
-        ModemLoginPage      Required if ModemLoginText is defined
-        Modem_USER          Required if ModemLoginText is defined
-        Modem_PASS          Required if ModemLoginText is defined
-    Returns True if the ModemStatusRE search matches ModemStatusUpState, else False.
-    Also returns the RE search result text
+class device:
+    """ Manage the connection to a router or modem, and extract specific data.
+
+    Config parameters using 'xxx' as a placeholder prefix (with examples):
+        xxxLoginPage               http://routerurl.lan/login
+            If login on a specific page is required.  Optional.  If not given then login attempt 
+            at the xxxStatusPage.
+        xxxLoginRequiredText   <title>CSRF Error</title>
+            Unique text found on the page returned by the device that indicates that a login is needed.
+        xxxLoginUsernameField      usernamefld
+            Name of the username field on the login page.  Optional.  If not given then username and 
+            password parameters are not used.  EG dd-wrt router doesn't need a password to access status.
+        xxx_USER
+            Login Username
+        xxxLoginPasswordField      passwordfld
+            Name of the password field on the login page.
+        xxx_PASS
+            Login Password
+        xxxLoginAdditionalKeys     login : Login, '__csrf_magic' : "None"
+            Any other needed keys related to login. All, including username and password, are
+            passed on all posts to the xxxLoginPage and xxxStatusPage.  
+            Csrf token parsing and updating is done if 'csrf' is found in these additional keys.
+        xxxCsrfRE                  csrfMagicToken = "(.*)";var
+            RE for parsing the csrf token out of pages returned from xxxLoginPage and xxxStatusPage.
+        xxxStatusPage              http://routerurl.lan/index.php
+            Page for extracting info from using the xxxStatusRE.
+        xxxStatusRE                <td.+title="via.dhcp">\s+([\d]+\.[\d]+\.[\d]+\.[\d]+)
+            RE for extracting modem status or router WAN IP from the xxxRouterStatusPage.
+        xxxTimeout
+            Max time allowed for response from the device.
+
+    Return info - device.get_data() returns a 3-tuple:
+        True/False for the success of the call.
+        The data item of interest per xxxStatusRE (modem state or WANIP from the router).
+        Formatted text message - command run time on success, or an error message.
     """
-    MODEM_FORMAT = re.compile(getcfg("ModemStatusRE"))
-    msg = "Modem status read failed"
-    for _ in range (getcfg('nRetries')):
-        try:
-            _timeout = timevalue(getcfg('ModemTimeout')).seconds
-            # Sometimes the modem requires a login, sometimes not.  Assume that prior login is still active.
-            start_time = time.time()
-            modem_page = requests.get(getcfg('ModemStatusPage'), timeout=_timeout)
-            cmd_time = time.time() - start_time
-            if getcfg('ModemLoginText', "nosuchtext") in modem_page.text:    # Need to do a login.
-                logging.info("Cable modem login executed")
-                payload = {'loginUsername': getcfg('Modem_USER'), 'loginPassword': getcfg('Modem_PASS')}
-                r = requests.post(getcfg('ModemLoginPage'), payload)
+
+    def __init__(self, device_name):
+        self.device_name           = device_name
+        self.status_page           = getcfg(device_name + "StatusPage", "")
+        self.status_RE             = getcfg(device_name + "StatusRE", "")
+        self.login_page            = getcfg(device_name + "LoginPage", None)
+        self.login_required_text   = getcfg(device_name + "LoginRequiredText", "nosuchtext")
+        self.login_username_field  = getcfg(device_name + "LoginUsernameField", False)
+        self.login_username        = getcfg(device_name + "_USER", "")
+        self.login_password_field  = getcfg(device_name + "LoginPasswordField", "")
+        self.login_password        = getcfg(device_name + "_PASS", "")
+        self.login_additional_keys = getcfg(device_name + "LoginAdditionalKeys", "")
+        self.csrf_RE               = getcfg(device_name + "CsrfRE", "")
+        self.timeout               = timevalue(getcfg(device_name + "Timeout", 1)).seconds
+
+        self.session = requests.session()
+        self.payload = {}
+        self.csrf_mode = False
+        self.csrf_key = ""
+
+        if self.login_username_field:
+            self.payload[self.login_username_field] = self.login_username
+            self.payload[self.login_password_field] = self.login_password
+        for dict_item in self.login_additional_keys.split(","):
+            if ":" in dict_item:
+                key, value = dict_item.split(":")
+                self.payload[key.strip(" '\"")] = value.strip(" '\"")
+                if "csrf" in key.lower():
+                    self.csrf_mode = True
+                    self.csrf_key = key.strip(" '\"")
+
+    def close(self):
+        if self.session:
+            self.session.close()
+
+    def update_csrf(self, page_text):
+        csrf = re.search(self.csrf_RE, page_text)
+        if csrf:
+            self.payload[self.csrf_key] = csrf.group(1)
+            # logging.debug (f"Updated csrf token:  {csrf.group(1)}")
+        else:
+            logging.warning (f"No csrf response from the {self.device_name}")
+
+    def get_data(self):
+        msg = f"Invalid web page response from {self.device_name}"
+
+        for _ in range (getcfg('nRetries')):
+            try:
+                logging.debug (f"{self.device_name} try {_} ")
+                # logging.debug(f"{self.device_name} payload:  {self.payload}")
                 start_time = time.time()
-                modem_page = requests.get(getcfg('ModemStatusPage'), timeout=_timeout)  # After login, re-get the status page
+                if not self.csrf_mode:
+                    status_page = self.session.get(self.status_page, timeout=self.timeout, verify = False)
+                else:
+                    status_page = self.session.post(self.status_page, data=self.payload, timeout=self.timeout, verify = False)
+                    self.update_csrf(status_page.text)
                 cmd_time = time.time() - start_time
 
-            out = MODEM_FORMAT.search(modem_page.text)
-            if out:
-                isgood = False
-                if out.group(1) == getcfg("ModemStatusUpState"):
-                    isgood = True
-                msg = f"{out.group(1):{FIELD_WIDTH2}} (command run time {cmd_time*1000:6.1f} ms)"
-                return isgood, msg
-        except Exception as e:
-            msg = "Modem access errored:\n  " + repr(e)
-    return False, msg
+                if self.login_required_text in status_page.text:
+                    logging.debug(f"{self.device_name} login executed")
+                    # logging.debug(f"{self.device_name} payload:  {self.payload}")
+                    if self.login_page is not None:
+                        login_page = self.session.post(self.login_page, data=self.payload, timeout=self.timeout, verify = False)
+                        if self.csrf_mode:
+                            self.update_csrf(login_page.text)
+                    start_time = time.time()
+                    if not self.csrf_mode:
+                        status_page = self.session.get(self.status_page, timeout=self.timeout, verify = False)
+                    else:
+                        status_page = self.session.post(self.status_page, data=self.payload, timeout=self.timeout, verify = False)
+                        self.update_csrf(status_page.text)
+                    cmd_time = time.time() - start_time
 
-
-def get_router_WANIP():
-    """Get WAN IP from router status page.
-    Config params:
-        RouterStatusPage
-        RouterStatusRE
-        RouterTimeout
-        Router_USER         If provided then log into the router before fetching RouterStatusPage
-        Router_PASS
-    On success, returns True and the IP address returned from the router, else False and the error message.
-    """
-    WANIP_FORMAT = re.compile(getcfg("RouterStatusRE"))
-    msg = "Invalid web page response from router"
-    for _ in range (getcfg('nRetries')):
-        try:
-            _timeout = timevalue(getcfg('RouterTimeout')).seconds
-            if getcfg("Router_USER", False) is not False:
-                start_time = time.time()
-                s = requests.session()
-                r = s.get(getcfg('RouterStatusPage'), timeout=_timeout, verify = False)
-                matchme = 'csrfMagicToken = "(.*)";var'
-                csrf = re.search(matchme,str(r.text))
-                payload = {
-                    '__csrf_magic' : csrf.group(1),
-                    'login' : 'Login',
-                    'usernamefld' : getcfg("Router_USER"),
-                    'passwordfld' : getcfg("Router_PASS")
-                    }
-                router_page = s.post(getcfg('RouterStatusPage'), timeout=_timeout, data=payload, verify = False)
-                # router_page = s.get(getcfg('RouterStatusPage'), timeout=_timeout, verify = False)  # In case of pfSense the page is returned on the post.  Don't need to get again.
-                cmd_time = time.time() - start_time
-            else:
-                start_time = time.time()
-                router_page = requests.get(getcfg('RouterStatusPage'), timeout=_timeout)
-                cmd_time = time.time() - start_time
-            out = WANIP_FORMAT.search(router_page.text)
-            if out:
-                msg = f"(command run time {cmd_time*1000:6.1f} ms)"
-                return True, out.group(1), msg
-        except Exception as e:
-            msg = "Router access errored:\n  " + repr(e)
-    return False, "", msg
+                out = re.search(self.status_RE, status_page.text, re.DOTALL)
+                if out:
+                    msg = f"(command run time {cmd_time*1000:6.1f} ms)"
+                    return True, out.group(1), msg
+            except Exception as e:
+                msg = f"{self.device_name} access errored:\n  " + repr(e)
+        return False, "", msg
 
 
 def get_external_WANIP():
@@ -373,9 +433,13 @@ def get_external_WANIP():
     return False, msg
 
 
-
 def cleanup():
+    global modem_status, router_status
     logging.warning ("Cleanup")
+    if getcfg('ModemStatusPage', False):
+        modem_status.close()
+    if getcfg('RouterStatusPage', False):
+        router_status.close()
     pass
 
 
@@ -387,11 +451,12 @@ signal.signal(signal.SIGINT,  int_handler)      # Ctrl-C
 signal.signal(signal.SIGTERM, int_handler)      # kill
 
 
-
 if __name__ == '__main__':
     parser = argparse.ArgumentParser(description=__doc__ + __version__, formatter_class=argparse.RawTextHelpFormatter)
     parser.add_argument('--config-file', type=str, default=CONFIG_FILE,
                         help=f"Path to the config file (Default <{CONFIG_FILE})>.")
+    parser.add_argument('--print-log', '-p', action='store_true',
+                        help="Print the tail end of the log file (last 40 lines).")
     parser.add_argument('--service', action='store_true',
                         help="Enter endless loop for use as a systemd service.")
     parser.add_argument('-V', '--version', action='version', version='%(prog)s ' + __version__,
@@ -426,6 +491,14 @@ if __name__ == '__main__':
     else:
         logging.debug(f"funcs3 module version <{funcs3_version}> (min required <V{FUNCS3_MIN_VERSION}>)")
 
+
+    # Print the tail end of the log file
+    if args.print_log:
+        _fp = getcfg("LogFile")
+        if not os.path.isabs(_fp):
+            _fp = os.path.join(PROGDIR, _fp)
+        subprocess.run(["tail", "-40", _fp])
+        sys.exit()
 
     if args.service:
         service()
