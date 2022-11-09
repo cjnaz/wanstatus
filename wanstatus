@@ -292,12 +292,12 @@ def have_internet():
 
 
 class device:
-    """ Manage the connection to a router or modem, and extracts specific data.
+    """ Manage the connection to a router or modem, and extract specific data.
 
     Config parameters using 'xxx' as a placeholder prefix (with examples):
         xxxLoginPage               http://routerurl.lan/login
             If login on a specific page is required.  Optional.  If not given then login attempt 
-            at the xxx_StatusPage.
+            at the xxxStatusPage.
         xxxLoginRequiredText   <title>CSRF Error</title>
             Unique text found on the page returned by the device that indicates that a login is needed.
         xxxLoginUsernameField      usernamefld
@@ -366,7 +366,7 @@ class device:
         csrf = re.search(self.csrf_RE, page_text)
         if csrf:
             self.payload[self.csrf_key] = csrf.group(1)
-            logging.debug (f"Updated csrf token:  {csrf.group(1)}")
+            # logging.debug (f"Updated csrf token:  {csrf.group(1)}")
         else:
             logging.warning (f"No csrf response from the {self.device_name}")
 
@@ -376,7 +376,7 @@ class device:
         for _ in range (getcfg('nRetries')):
             try:
                 logging.debug (f"{self.device_name} try {_} ")
-                logging.debug(f"{self.device_name} payload:  {self.payload}")
+                # logging.debug(f"{self.device_name} payload:  {self.payload}")
                 start_time = time.time()
                 if not self.csrf_mode:
                     status_page = self.session.get(self.status_page, timeout=self.timeout, verify = False)
