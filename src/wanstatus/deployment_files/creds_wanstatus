@@ -1,0 +1,10 @@
+# Credentials for wanstatus
+
+# pfSense Dashboard page access params
+Router_USER         admin
+Router_PASS         yourpassword
+
+# Cox CGM4140COM
+Modem_USER          admin
+Modem_PASS          yourpassword
+
