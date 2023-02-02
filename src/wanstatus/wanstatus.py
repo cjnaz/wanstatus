@@ -526,8 +526,9 @@ def cli():
     # Print the tail end of the log file
     if args.print_log:
         try:
-            print (f"Tail of  <{tool.log_full_path}>:")
-            subprocess.run(["tail", "-40", tool.log_full_path])
+            _lf = mungePath(getcfg("LogFile"), tool.log_dir_base).full_path
+            print (f"Tail of  <{_lf}>:")
+            subprocess.run(["tail", "-40", _lf])
         except Exception as e:
             print (f"Couldn't print the log file.  LogFile defined in the config file?\n  {e}")
         sys.exit()
