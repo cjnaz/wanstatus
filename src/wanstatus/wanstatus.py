@@ -3,29 +3,25 @@
 on WAN IP change.
 """
 
-#__version__ = "3.0.1"
-
 #==========================================================
 #
 #  Chris Nelson, 2020 - 2023
 #
-# V3.0 230122  Converted to package format, updated to cjnfuncs V2.0
-# V2.2 221106  Converged modem and router check code into device class
-# V2.1 221013  have_internet() ping and dns servers may be more than 1.
-# V2.0 221003  Revamp. have_internet() supports both DNS connect and ping modes. Support Motorola MB7621 modem login.
-# V1.5 220915  Added error traps on snd_notif/snd_email calls
-# V1.4 220411  Incorporated use of timevalue
-# V1.3 220203  Updated to funcs3 V1.0
-# V1.2 211111  pfSense support with router status page login
-# V1.1 210617  Added RouterTimeout, WANIPWebpageTimeout, socket close in have_internet
-# V1.0 210523  Requires funcs3 V0.7 min for import of credentials file and config dynamic reload.
+# 3.0 230215 - Converted to package format, updated to cjnfuncs 2.0
+# 2.2 221106 - Converged modem and router check code into device class
+# 2.1 221013 - have_internet() ping and dns servers may be more than 1.
+# 2.0 221003 - Revamp. have_internet() supports both DNS connect and ping modes. Support Motorola MB7621 modem login.
+# 1.5 220915 - Added error traps on snd_notif/snd_email calls
+# 1.4 220411 - Incorporated use of timevalue
+# 1.3 220203 - Updated to funcs3 V1.0
+# 1.2 211111 - pfSense support with router status page login
+# 1.1 210617 - Added RouterTimeout, WANIPWebpageTimeout, socket close in have_internet
+# 1.0 210523 - Requires funcs3 V0.7 min for import of credentials file and config dynamic reload.
 #   Added --config-file and --log-file switches
 #	Moved router, modem, external webpage RE definitions into the config file to minimize code dependency.  
-# V0.2 201203  Changed handling of get_router_WANIP that periodically did not return a valid value.
+# 0.2 201203 - Changed handling of get_router_WANIP that periodically did not return a valid value.
 #   Changed to use logger for once mode.
-# V0.1 201028  New
-#
-# Changes pending
+# 0.1 201028 - New
 #
 #==========================================================
 
@@ -33,37 +29,32 @@ import argparse
 import sys
 import datetime
 import time
-import os
 import requests
 import subprocess
 import socket
 import re
 import signal
+import collections
 import platform
 
 try:
     import importlib.metadata
     __version__ = importlib.metadata.version(__package__ or __name__)
-    # print ("Using importlib.metadata for __version__ assignment")
 except:
     try:
         import importlib_metadata
         __version__ = importlib_metadata.version(__package__ or __name__)
-        # print ("Using importlib_metadata for __version__ assignment")
     except:
-        __version__ = "2.0 X"
-        # print ("Using local __version__ assignment")
+        __version__ = "3.0 X"
 
-# from pathlib import Path
-# import shutil
 # from cjnfuncs.cjnfuncs import set_toolname, setup_logging, logging, config_item, getcfg, mungePath, deploy_files, timevalue, retime, requestlock, releaselock,  snd_notif, snd_email
 from cjnfuncs.cjnfuncs import set_toolname, deploy_files, config_item, mungePath, getcfg, timevalue, logging, snd_notif, snd_email
 
 
 # Configs / Constants
 TOOLNAME     = "wanstatus"
-CONFIG_FILE  = "cjn_wanstatus.cfg"
-CONSOLE_LOGGING_FORMAT = '{levelname:>8}:  {message}'
+CONFIG_FILE  = "wanstatus.cfg"
+# Logging results field widths
 # Internet access:               Working        (DNS server...
 # ^^FIELD_WIDTH1                 ^^FIELD_WIDTH2
 FIELD_WIDTH1 = 28
@@ -72,7 +63,7 @@ FIELD_WIDTH2 = 16
 
 def main():
     global modem_status, router_status
-    global tool, config
+    global tool
     logging.getLogger().setLevel(20)    # Force info level logging for interactive usage
 
     SavedWANIP = ""
@@ -139,7 +130,7 @@ def service():
     while 1:
         if config.loadconfig(flush_on_reload=True, call_logfile_wins=logfile_override):       # Refresh if changes
             logging.warning(f"NOTE - The config file has been reloaded.")
-            modem_status = device("Modem")     # Recreate device objects since their config has possibly changed
+            modem_status = device("Modem")     # Recreate device objects since their configs may have changed
             router_status = device("Router")
             next_check_time = next_WANIP_check_time = time.time()
 
@@ -256,6 +247,7 @@ def have_internet():
     Also returns target address and response time
     """
     msg = f"have_internet() failed - Invalid IACheckMethod <{getcfg('IACheckMethod')}>?"
+
     if getcfg("IACheckMethod", "none").lower() == "ping":
         for addr in getcfg("IAPingAddrs").split():
             for _ in range (getcfg('nRetries')):
@@ -263,8 +255,11 @@ def have_internet():
                 try:
                     logging.debug (f"Attempting ping to {addr}")
                     start_time = time.time()
-                    ping = subprocess.run(["ping", addr, "-c", "1", "-W", "5"],     # timeout hardcoded to 5sec
-                        check=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE, universal_newlines=True)
+                    if platform.system() == "Windows":
+                        _cmd = ["ping", addr, r"/n", "1"] #, r"/w", "5000"]     # Setting timeout /w on Windows fails.  ??
+                    else:
+                        _cmd = ["ping", addr, "-c", "1", "-W", "5"]     # timeout hardcoded to 5sec
+                    ping = subprocess.run(_cmd, check=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE, universal_newlines=True)
                     cmd_time = time.time() - start_time
                     ping.check_returncode()
                     ping_time = float(re.search("time=([\d.]*)", ping.stdout).group(1))
@@ -475,14 +470,13 @@ def cli():
     parser.add_argument('--log-file', '-l', type=str, default=None,
                         help=f"Path to the log file.")
     parser.add_argument('--print-log', '-p', action='store_true',
-                        help="Print the tail end of the log file (last 40 lines).")
+                        help="Print the tail end of the log file (default last 40 lines).")
     parser.add_argument('--service', action='store_true',
                         help="Enter endless loop for use as a systemd service.")
     parser.add_argument('--setup-user', action='store_true',
                         help=f"Install starter files in user space.")
     parser.add_argument('--setup-site', action='store_true',
                         help=f"Install starter files in system-wide space. Run with root prev.")
-    # parser.add_argument('-V', '--version', action='version', version='%(prog)s ' + __version__,
     parser.add_argument('-V', '--version', action='version', version=f"{tool.toolname} {__version__}",
                         help="Return version number and exit.")
     args = parser.parse_args()
@@ -491,44 +485,46 @@ def cli():
     # Deploy template files
     if args.setup_user:
         deploy_files([
-            { "source": CONFIG_FILE,       "target_dir": "USER_CONFIG_DIR"},
-            { "source": "creds_wanstatus", "target_dir": "USER_CONFIG_DIR", "file_stat": 0o600},
-            { "source": "creds_SMTP",      "target_dir": "USER_CONFIG_DIR", "file_stat": 0o600},
+            { "source": CONFIG_FILE,         "target_dir": "USER_CONFIG_DIR"},
+            { "source": "creds_wanstatus",   "target_dir": "USER_CONFIG_DIR", "file_stat": 0o600},
+            { "source": "creds_SMTP",        "target_dir": "USER_CONFIG_DIR", "file_stat": 0o600},
+            { "source": "wanstatus.service", "target_dir": "USER_CONFIG_DIR", "file_stat": 0o664},
             ])
         sys.exit()
 
     if args.setup_site:
         deploy_files([
-            { "source": CONFIG_FILE,       "target_dir": "SITE_CONFIG_DIR"},
-            { "source": "creds_wanstatus", "target_dir": "SITE_CONFIG_DIR", "file_stat": 0o600},
-            { "source": "creds_SMTP",      "target_dir": "SITE_CONFIG_DIR", "file_stat": 0o600},
+            { "source": CONFIG_FILE,         "target_dir": "SITE_CONFIG_DIR"},
+            { "source": "creds_wanstatus",   "target_dir": "SITE_CONFIG_DIR", "file_stat": 0o600},
+            { "source": "creds_SMTP",        "target_dir": "SITE_CONFIG_DIR", "file_stat": 0o600},
+            { "source": "wanstatus.service", "target_dir": "SITE_CONFIG_DIR", "file_stat": 0o664},
             ])
         sys.exit()
 
 
     # Load config file and setup logging
     logfile_override = True  if not args.service  else False
-
     try:
-        # print(tool.dump())
         config = config_item(args.config_file)
         config.loadconfig(call_logfile_wins=logfile_override, call_logfile=args.log_file) #, ldcfg_ll=10)
-        # print(config.dump())
     except Exception as e:
         logging.error(f"Failed loading config file <{args.config_file}>. \
 \n  Run with  '--setup-user' or '--setup-site' to install starter files.\n  {e}\n  Aborting.")
         sys.exit(1)
 
+
     logging.warning (f"========== {tool.toolname} ({__version__}) ==========")
     logging.warning (f"Config file <{config.config_full_path}>")
 
 
-    # Print the tail end of the log file
+    # Print log
     if args.print_log:
         try:
             _lf = mungePath(getcfg("LogFile"), tool.log_dir_base).full_path
             print (f"Tail of  <{_lf}>:")
-            subprocess.run(["tail", "-40", _lf])
+            _xx = collections.deque(_lf.open(), getcfg("PrintLogLength", 40))
+            for line in _xx:
+                print (line, end="")
         except Exception as e:
             print (f"Couldn't print the log file.  LogFile defined in the config file?\n  {e}")
         sys.exit()
