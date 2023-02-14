@@ -3,8 +3,8 @@ Description=Track internet access and WAN IP status
 After=network-online.target
 
 [Service]
-ExecStart=/<path to>/wanstatus --service
-#User=<yourusername>
+ExecStart=/home/me/.local/bin/wanstatus --service
+User=me
 
 [Install]
 WantedBy=multi-user.target

@@ -8,19 +8,7 @@ on WAN IP change.
 #  Chris Nelson, 2020 - 2023
 #
 # 3.0 230215 - Converted to package format, updated to cjnfuncs 2.0
-# 2.2 221106 - Converged modem and router check code into device class
-# 2.1 221013 - have_internet() ping and dns servers may be more than 1.
-# 2.0 221003 - Revamp. have_internet() supports both DNS connect and ping modes. Support Motorola MB7621 modem login.
-# 1.5 220915 - Added error traps on snd_notif/snd_email calls
-# 1.4 220411 - Incorporated use of timevalue
-# 1.3 220203 - Updated to funcs3 V1.0
-# 1.2 211111 - pfSense support with router status page login
-# 1.1 210617 - Added RouterTimeout, WANIPWebpageTimeout, socket close in have_internet
-# 1.0 210523 - Requires funcs3 V0.7 min for import of credentials file and config dynamic reload.
-#   Added --config-file and --log-file switches
-#	Moved router, modem, external webpage RE definitions into the config file to minimize code dependency.  
-# 0.2 201203 - Changed handling of get_router_WANIP that periodically did not return a valid value.
-#   Changed to use logger for once mode.
+# ...
 # 0.1 201028 - New
 #
 #==========================================================
@@ -52,13 +40,14 @@ from cjnfuncs.cjnfuncs import set_toolname, deploy_files, config_item, mungePath
 
 
 # Configs / Constants
-TOOLNAME     = "wanstatus"
-CONFIG_FILE  = "wanstatus.cfg"
+TOOLNAME        = "wanstatus"
+CONFIG_FILE     = "wanstatus.cfg"
+PRINTLOGLENGTH  = 40
 # Logging results field widths
 # Internet access:               Working        (DNS server...
 # ^^FIELD_WIDTH1                 ^^FIELD_WIDTH2
-FIELD_WIDTH1 = 28
-FIELD_WIDTH2 = 16
+FIELD_WIDTH1    = 28
+FIELD_WIDTH2    = 16
 
 
 def main():
@@ -470,7 +459,7 @@ def cli():
     parser.add_argument('--log-file', '-l', type=str, default=None,
                         help=f"Path to the log file.")
     parser.add_argument('--print-log', '-p', action='store_true',
-                        help="Print the tail end of the log file (default last 40 lines).")
+                        help=f"Print the tail end of the log file (default last {PRINTLOGLENGTH} lines).")
     parser.add_argument('--service', action='store_true',
                         help="Enter endless loop for use as a systemd service.")
     parser.add_argument('--setup-user', action='store_true',

@@ -2,6 +2,9 @@
 
 Monitors WAN-side internet access and WAN IP address changes on a home network.  Sends email and/or text notifications for internet outages (after restored) and WAN IP changes.  The tool is highly configurable for which modem and router you may be using.  Configurations for dd-wrt and pfSense routers, and Motorola and Technicolor/Cox gateway modems are included.
 
+Supported on Python3.6+ on Linux and Windows.
+
+
 `wanstatus --service` enters an infinite loop, periodically checking the status of internet access and the WAN IP address.  `wanstatus` interactively checks status.
 
 - Internet access is detected by contacting an external DNS server (faster) such as the Google public DNS server at 8.8.8.8.  Alternately, web addresses may be pinged to detect internet access (slower).
@@ -20,7 +23,7 @@ wanstatus may be started manually, or may be configured to start at system boot.
 ---
 
 ## Notable changes since prior release
-V3.0 - Install as a package from PyPI.
+V3.0 - Converted to package format, updated to cjnfuncs 2.0
 
 <br/>
 
@@ -74,7 +77,6 @@ $$ wanstatus
 - Edit/configure `wanstatus.cfg`, `creds_SMTP`, and `creds_wanstatus` as needed.
 - Run manually as `./wanstatus`, or install the systemd service.
 - When running in service mode (continuously looping) the config file may be edited and is reloaded when changed.  This allows for changing settings without having to restart the service.
-- Supported on Python3.6+ on Linux and Windows.
 
 
 <br/>
