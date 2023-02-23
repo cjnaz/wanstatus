@@ -134,6 +134,7 @@ Modem and Router config parameters:
 ---
 
 ## Version history
+- 3.0.1 230222 - Fixed inclusion of deployment_files
 - 3.0 230215 - Converted to package format, updated to cjnfuncs 2.0
 - ...
 - 0.1 201028 - New

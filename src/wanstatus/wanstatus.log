@@ -1,9 +1,0 @@
-2023-01-21 11:10:42,285       wanstatus.cli                   WARNING:  ========== wanstatus.py (3.0) ==========
-2023-01-21 11:10:42,285       wanstatus.cli                   WARNING:  Config file </mnt/share/dev/packages/wanstatus/src/wanstatus/cjn_wanstatus.cfg>
-2023-01-21 11:10:42,296       wanstatus.service                  INFO:  Internet access:             Working          (DNS server 68.105.29.16, command run time   10.5 ms)
-2023-01-21 11:10:44,829       wanstatus.service                  INFO:  Router reported WANIP:       98.177.60.124    (command run time 2510.6 ms)
-2023-01-21 11:10:44,829        cjnfuncs.snd_notif             WARNING:  Notification NOT sent <NOTICE:  HOME WAN IP CHANGED> <New WAN IP: <98.177.60.124>, Prior WAN IP: <98.177.60.124#
->.>
-2023-01-21 11:10:45,188       wanstatus.service                  INFO:  Externally reported WANIP:   98.177.60.124    (command run time  356.9 ms)
-2023-01-21 11:10:53,937       wanstatus.int_handler           WARNING:  Signal 2 received.  Exiting.
-2023-01-21 11:10:53,937       wanstatus.cleanup               WARNING:  Cleanup
