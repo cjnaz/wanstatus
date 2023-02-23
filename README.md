@@ -3,6 +3,7 @@
 Monitors WAN-side internet access and WAN IP address changes on a home network.  Sends email and/or text notifications for internet outages (after restored) and WAN IP changes.  The tool is highly configurable for which modem and router you may be using.  Configurations for dd-wrt and pfSense routers, and Motorola and Technicolor/Cox gateway modems are included.
 
 Supported on Python3.6+ on Linux and Windows.
+- NOTE:  Due to as-of-yet unsolved problems with Python 3.6 and import_resources, the `--setup-user` and `--setup-site` switches are not working.  Manually grab the files from the [github](https://github.com/cjnaz/wanstatus) `wanstatus/src/deployment_files directory` and place them in the `~\.config\wanstatus` directory.  The command line switches work correctly on Python 3.7+.
 
 
 `wanstatus --service` enters an infinite loop, periodically checking the status of internet access and the WAN IP address.  `wanstatus` interactively checks status.
