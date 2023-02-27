@@ -13,7 +13,7 @@ authors = [ {name = "Chris Nelson", email = "github@cjnaz.com"} ]
 license = {file = "LICENSE.txt"}
 dependencies = [
     'requests',
-    'cjnfuncs >= 2.0',
+    'cjnfuncs >= 2.0.1',
     'importlib-metadata; python_version<"3.8"',
     ]
 classifiers = [                 # https://pypi.org/classifiers/

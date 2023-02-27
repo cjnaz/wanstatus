@@ -3,8 +3,6 @@
 Monitors WAN-side internet access and WAN IP address changes on a home network.  Sends email and/or text notifications for internet outages (after restored) and WAN IP changes.  The tool is highly configurable for which modem and router you may be using.  Configurations for dd-wrt and pfSense routers, and Motorola and Technicolor/Cox gateway modems are included.
 
 Supported on Python3.6+ on Linux and Windows.
-- NOTE:  Due to as-of-yet unsolved problems with Python 3.6 and import_resources, the `--setup-user` and `--setup-site` switches are not working.  Manually grab the files from the [github](https://github.com/cjnaz/wanstatus) `wanstatus/src/deployment_files directory` and place them in the `~\.config\wanstatus` directory.  The command line switches work correctly on Python 3.7+.
-
 
 `wanstatus --service` enters an infinite loop, periodically checking the status of internet access and the WAN IP address.  `wanstatus` interactively checks status.
 
@@ -18,6 +16,9 @@ Supported on Python3.6+ on Linux and Windows.
 All parameters are set in the `wanstatus.cfg` config file.  On each loop in service mode the config file is checked for changes, and reloaded as needed.  This allows for on-the-fly configuration changes.
 
 wanstatus may be started manually, or may be configured to start at system boot.  An example systemd unit file is included.  See systemd documentation for how to set it up.
+
+**NOTE:**  Due to as-of-yet unsolved problems with Python 3.6 and import_resources, the `--setup-user` and `--setup-site` switches are not working on Py 3.6.  Manually grab the files from the [github](https://github.com/cjnaz/wanstatus) `src/deployment_files` directory and place them in the `~\.config\wanstatus` directory.  These command line switches work correctly on Python 3.7+.
+
 
 <br/>
 
@@ -135,7 +136,7 @@ Modem and Router config parameters:
 ---
 
 ## Version history
-- 3.0.1 230222 - Fixed inclusion of deployment_files
+- 3.0.1 230226 - Fixed inclusion of deployment_files
 - 3.0 230215 - Converted to package format, updated to cjnfuncs 2.0
 - ...
 - 0.1 201028 - New
