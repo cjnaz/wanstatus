@@ -25,7 +25,9 @@ wanstatus may be started manually, or may be configured to start at system boot.
 ---
 
 ## Notable changes since prior release
-V3.0 - Converted to package format, updated to cjnfuncs 2.0
+
+V3.1 - Adjusted for cjnfuncs V2.1 (module partitioning).
+.SMTP params must be in the [SMTP] config file section.
 
 <br/>
 
@@ -34,14 +36,13 @@ V3.0 - Converted to package format, updated to cjnfuncs 2.0
 ## Usage
 ```
 $ wanstatus -h
-usage: wanstatus [-h] [--config-file CONFIG_FILE] [--log-file LOG_FILE]
-                 [--print-log] [--service] [--setup-user] [--setup-site] [-V]
+usage: wanstatus [-h] [--config-file CONFIG_FILE] [--log-file LOG_FILE] [--print-log] [--service] [--setup-user] [--setup-site] [-V]
 
 Check internet access and WAN IP address.  Send notification/email after outage is over and
 on WAN IP change.
-3.0
+3.1
 
-optional arguments:
+options:
   -h, --help            show this help message and exit
   --config-file CONFIG_FILE, -c CONFIG_FILE
                         Path to the config file (Default <wanstatus.cfg)> in user/site config directory.
@@ -61,7 +62,7 @@ optional arguments:
 ## Example output
 ```
 $$ wanstatus 
- WARNING:  ========== wanstatus (3.0) ==========
+ WARNING:  ========== wanstatus (3.1) ==========
  WARNING:  Config file </home/me/.config/wanstatus/wanstatus.cfg>
     INFO:  Internet access:             Working          (DNS server 72.105.29.22, command run time   11.3 ms)
     INFO:  Modem status:                Locked           (command run time 6550.7 ms)
@@ -136,6 +137,7 @@ Modem and Router config parameters:
 ---
 
 ## Version history
+- 3.1 240104 - Adjusted for cjnfuncs 2.1
 - 3.0.1 230226 - Fixed inclusion of deployment_files
 - 3.0 230215 - Converted to package format, updated to cjnfuncs 2.0
 - ...

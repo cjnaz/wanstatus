@@ -5,7 +5,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "wanstatus"
-version = "3.0.1"
+version = "3.1"
 description = "Monitor WAN-side internet access and WAN IP address changes on a home network"
 readme = "README.md"
 requires-python = ">=3.6"       # Centos 7 uses 3.6.8
@@ -13,7 +13,7 @@ authors = [ {name = "Chris Nelson", email = "github@cjnaz.com"} ]
 license = {file = "LICENSE.txt"}
 dependencies = [
     'requests',
-    'cjnfuncs >= 2.0.1',
+    'cjnfuncs >= 2.1',
     'importlib-metadata; python_version<"3.8"',
     ]
 classifiers = [                 # https://pypi.org/classifiers/
