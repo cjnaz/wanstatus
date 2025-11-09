@@ -2,7 +2,7 @@
 
 Monitors WAN-side internet access and WAN IP address changes on a home network.  Sends email and/or text notifications for internet outages (after restored) and WAN IP changes.  The tool is highly configurable for which modem and router you may be using.  Configurations for dd-wrt and pfSense routers, and Motorola and Technicolor/Cox gateway modems are included.
 
-Supported on Python3.6+ on Linux and Windows.
+Supported on Python3.9+ on Linux and Windows.
 
 `wanstatus --service` enters an infinite loop, periodically checking the status of internet access and the WAN IP address.  `wanstatus` interactively checks status.
 
@@ -24,10 +24,9 @@ wanstatus may be started manually, or may be configured to start at system boot.
 
 ---
 
-## Notable changes since prior release
+## Notable changes since prior release V3.1
 
-V3.1 - Adjusted for cjnfuncs V2.1 (module partitioning).
-.SMTP params must be in the [SMTP] config file section.
+Update for cjnfuncs 3.1 (mungePath set_attributes=False)
 
 <br/>
 
@@ -40,7 +39,7 @@ usage: wanstatus [-h] [--config-file CONFIG_FILE] [--log-file LOG_FILE] [--print
 
 Check internet access and WAN IP address.  Send notification/email after outage is over and
 on WAN IP change.
-3.1
+3.1.2
 
 options:
   -h, --help            show this help message and exit
@@ -62,7 +61,7 @@ options:
 ## Example output
 ```
 $$ wanstatus 
- WARNING:  ========== wanstatus (3.1) ==========
+ WARNING:  ========== wanstatus (3.1.2) ==========
  WARNING:  Config file </home/me/.config/wanstatus/wanstatus.cfg>
     INFO:  Internet access:             Working          (DNS server 72.105.29.22, command run time   11.3 ms)
     INFO:  Modem status:                Locked           (command run time 6550.7 ms)
@@ -137,6 +136,7 @@ Modem and Router config parameters:
 ---
 
 ## Version history
+- 3.1.2 251109 - Update for cjnfuncs 3.1 (mungePath set_attributes=False)
 - 3.1 240104 - Adjusted for cjnfuncs 2.1
 - 3.0.1 230226 - Fixed inclusion of deployment_files
 - 3.0 230215 - Converted to package format, updated to cjnfuncs 2.0
