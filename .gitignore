@@ -4,4 +4,4 @@ build/
 dist/
 log*.txt
 *.egg-info/
-
+wanstatus.cfg

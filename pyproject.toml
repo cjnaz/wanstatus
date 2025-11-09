@@ -1,36 +1,39 @@
-[build-system]
-requires = ["setuptools"] #, "setuptools-scm"]
-build-backend = "setuptools.build_meta"
-
-
 [project]
-name = "wanstatus"
-version = "3.1"
-description = "Monitor WAN-side internet access and WAN IP address changes on a home network"
-readme = "README.md"
-requires-python = ">=3.6"       # Centos 7 uses 3.6.8
-authors = [ {name = "Chris Nelson", email = "github@cjnaz.com"} ]
-license = {file = "LICENSE.txt"}
+name = 'wanstatus'
+version = '3.1.2'
+    # 3.1.2 - Update for cjnfuncs 3.1 (mungePath set_attributes=False)
+    # 3.1.1 - pyproject.toml tuning
+description = 'Monitor WAN-side internet access and WAN IP address changes on a home network'
+readme = 'README.md'
+requires-python = '>=3.9'                   # RHEL 9 uses py3.9
+authors = [ {name = 'Chris Nelson', email = 'github@cjnaz.com'} ]
+license = 'MIT'
 dependencies = [
     'requests',
-    'cjnfuncs >= 2.1',
-    'importlib-metadata; python_version<"3.8"',
+    'cjnfuncs >= 3.1rc4',
     ]
-classifiers = [                 # https://pypi.org/classifiers/
-    "Topic :: System :: Networking :: Monitoring",
+keywords = ['cjnaz', 'lan', 'wan', 'router', 'pfsense', 'dd-wrt', 'monitor']
+classifiers = [                             # https://pypi.org/classifiers/
+    'Topic :: System :: Networking :: Monitoring',
     ]
+
+
+[build-system]
+requires = ['setuptools']
+build-backend = 'setuptools.build_meta'
 
 
 [project.scripts]
-wanstatus = "wanstatus.wanstatus:cli"
+wanstatus = 'wanstatus.wanstatus:cli'
 
 
 [project.urls]
-repository = "https://github.com/cjnaz/wanstatus"
+repository = 'https://github.com/cjnaz/wanstatus'
 
 
 [tool.setuptools.packages.find]
-where = ["src"]
+where = ['src']
+
 
 [tool.setuptools.package-data]
-"*" = ["deployment_files/*"]
+'*' = ['deployment_files/*']

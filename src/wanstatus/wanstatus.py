@@ -57,10 +57,17 @@ def main():
 
     SavedWANIP = ""
 
-    WANfile = mungePath (config.getcfg("WANIPFile"), core.tool.data_dir)
-    if WANfile.is_file:
-        with WANfile.full_path.open() as ifile:
+    try:
+        WANfile = mungePath (config.getcfg("WANIPFile"), core.tool.data_dir).full_path
+        with WANfile.open() as ifile:
             SavedWANIP = ifile.read()
+    except Exception as e:
+        pass
+
+    # WANfile = mungePath (config.getcfg("WANIPFile"), core.tool.data_dir, set_attributes=True)
+    # if WANfile.is_file:
+    #     with WANfile.full_path.open() as ifile:
+    #         SavedWANIP = ifile.read()
 
     # Check internet access
     status, msg = have_internet()
@@ -104,10 +111,17 @@ def service():
 
     SavedWANIP = ""
 
-    WANfile = mungePath (config.getcfg("WANIPFile"), core.tool.data_dir)
-    if WANfile.is_file:
-        with WANfile.full_path.open() as ifile:
+    try:
+        WANfile = mungePath (config.getcfg("WANIPFile"), core.tool.data_dir).full_path
+        with WANfile.open() as ifile:
             SavedWANIP = ifile.read()
+    except Exception as e:
+        pass
+
+    # WANfile = mungePath (config.getcfg("WANIPFile"), core.tool.data_dir, set_attributes=True)
+    # if WANfile.is_file:
+    #     with WANfile.full_path.open() as ifile:
+    #         SavedWANIP = ifile.read()
 
     if config.getcfg('ModemStatusPage', False):
         modem_status = device("Modem")
@@ -203,7 +217,8 @@ def service():
                             if not config.getcfg("NotifList", False, section='SMTP')  and  not config.getcfg("EmailTo", False, section='SMTP'):
                                 logging.warning(f"{subject} - {message}")
 
-                            with WANfile.full_path.open('w') as ofile:
+                            # with WANfile.full_path.open('w') as ofile:
+                            with WANfile.open('w') as ofile:
                                 ofile.write (WANIP)
                             SavedWANIP = WANIP
                     else:
@@ -477,20 +492,24 @@ def cli():
 
     # Deploy template files
     if args.setup_user:
+        logging.getLogger('cjnfuncs.deployfiles').setLevel(logging.INFO)
         deploy_files([
             { "source": CONFIG_FILE,         "target_dir": "USER_CONFIG_DIR"},
             { "source": "creds_wanstatus",   "target_dir": "USER_CONFIG_DIR", "file_stat": 0o600},
             { "source": "creds_SMTP",        "target_dir": "USER_CONFIG_DIR", "file_stat": 0o600},
             { "source": "wanstatus.service", "target_dir": "USER_CONFIG_DIR", "file_stat": 0o664},
+            { "source": "",                  "target_dir": "USER_DATA_DIR",   "dir_stat":  0o755},
             ])
         sys.exit()
 
     if args.setup_site:
+        logging.getLogger('cjnfuncs.deployfiles').setLevel(logging.INFO)
         deploy_files([
             { "source": CONFIG_FILE,         "target_dir": "SITE_CONFIG_DIR"},
             { "source": "creds_wanstatus",   "target_dir": "SITE_CONFIG_DIR", "file_stat": 0o600},
             { "source": "creds_SMTP",        "target_dir": "SITE_CONFIG_DIR", "file_stat": 0o600},
             { "source": "wanstatus.service", "target_dir": "SITE_CONFIG_DIR", "file_stat": 0o664},
+            { "source": "",                  "target_dir": "SITE_DATA_DIR",   "dir_stat":  0o755},
             ])
         sys.exit()
 
